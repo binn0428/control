@@ -109,7 +109,8 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
   const [shareError, setShareError]           = useState("");
 
   const isOwnDevice    = !!(selectedDevice && !selectedDevice.share_from);
-  const shareRemaining = isOwnDevice ? MAX_SHARES - (selectedDevice?.share_count ?? 0) : null;
+  // count 本身就代表剩餘次數（每次分享 -1）
+  const shareRemaining = isOwnDevice ? (selectedDevice?.share_count ?? 0) : null;
 
   /* ── 取得設備 ── */
   const fetchDevices = useCallback(async () => {
@@ -288,14 +289,14 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
           mqtt_user:   selectedDevice.mqtt_user,
           mqtt_pass:   selectedDevice.mqtt_pass,
           share_from:  email,
-          count:       currentCount + 1,
+          count:       currentCount - 1,
         });
       if (insertErr) throw insertErr;
 
-      // 5. UPDATE owner count + 1
+      // 5. UPDATE owner count - 1
       const { error: updateErr } = await supabase
         .from("device_credentials")
-        .update({ count: currentCount + 1 })
+        .update({ count: currentCount - 1 })
         .eq("id", ownerRow.id);
       if (updateErr) throw updateErr;
 
@@ -583,7 +584,7 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
               <div className="w-10 h-1 bg-slate-700 rounded-full mx-auto mb-3" />
               <h3 className="text-sm font-bold mb-0.5">分享設備</h3>
               <p className="text-xs text-slate-500 mb-3">
-                {selectedDevice?.device_name}・剩餘 {shareRemaining}/{MAX_SHARES} 次
+                {selectedDevice?.device_name}・剩餘 {shareRemaining} 次
               </p>
               {shareError && (
                 <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 mb-3">
