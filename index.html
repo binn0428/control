@@ -352,19 +352,23 @@
     <div id="view-config" class="center hidden">
       <div class="card auth">
         <h1>缺少 Supabase 設定</h1>
-        <p>請在 index.html 裡填入 Supabase URL 與 anon key，才能正常使用。</p>
-        <div class="alert" style="margin-top: 16px">
-          <div class="kv">
-            <div class="kvItem">
-              <div class="k">https://pfeiiqqbktgdjldkiixa.supabase.co</div>
-              <div class="v">https://pfeiiqqbktgdjldkiixa.supabase.co</div>
-            </div>
-            <div class="kvItem">
-              <div class="k">sb_publishable_8bKuQksugb_Gmzzb7bCq_g_cDVc6IBE</div>
-              <div class="v">sb_publishable_8bKuQksugb_Gmzzb7bCq_g_cDVc6IBE</div>
-            </div>
-          </div>
+        <p>請輸入 Supabase URL 與 anon key（會儲存在此瀏覽器）。</p>
+
+        <div class="field">
+          <label for="config-url">Supabase URL</label>
+          <input id="config-url" type="url" placeholder="https://xxxx.supabase.co" />
         </div>
+
+        <div class="field">
+          <label for="config-key">Supabase anon key</label>
+          <input id="config-key" type="password" placeholder="sb_publishable_..." />
+        </div>
+
+        <button id="config-save" class="btn" type="button">儲存並重新載入</button>
+
+        <p class="muted" style="margin-top: 12px; font-size: 12px">
+          提醒：此設定只儲存在你的瀏覽器 localStorage。
+        </p>
       </div>
     </div>
 
@@ -497,8 +501,27 @@
     ></script>
 
     <script type="module">
-      const SUPABASE_URL = "YOUR_SUPABASE_URL";
-      const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+      const STORAGE_KEYS = {
+        url: "supabase_url",
+        anonKey: "supabase_anon_key",
+      };
+
+      const DEFAULT_SUPABASE_URL = "";
+      const DEFAULT_SUPABASE_ANON_KEY = "";
+
+      const getSupabaseConfig = () => {
+        const url = localStorage.getItem(STORAGE_KEYS.url) || DEFAULT_SUPABASE_URL;
+        const anonKey =
+          localStorage.getItem(STORAGE_KEYS.anonKey) || DEFAULT_SUPABASE_ANON_KEY;
+        return { url, anonKey };
+      };
+
+      const setSupabaseConfig = ({ url, anonKey }) => {
+        localStorage.setItem(STORAGE_KEYS.url, url);
+        localStorage.setItem(STORAGE_KEYS.anonKey, anonKey);
+      };
+
+      let { url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY } = getSupabaseConfig();
 
       const MQTT_BROKER_URL =
         "wss://8141bbadc4214f9d9f30e7822bd41522.s1.eu.hivemq.cloud:8884/mqtt";
@@ -507,6 +530,10 @@
         viewConfig: document.getElementById("view-config"),
         viewAuth: document.getElementById("view-auth"),
         viewDashboard: document.getElementById("view-dashboard"),
+
+        configUrl: document.getElementById("config-url"),
+        configKey: document.getElementById("config-key"),
+        configSave: document.getElementById("config-save"),
 
         authTitle: document.getElementById("auth-title"),
         authSubtitle: document.getElementById("auth-subtitle"),
@@ -751,16 +778,19 @@
       }
 
       async function init() {
+        ({ url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY } = getSupabaseConfig());
+
         const hasConfig =
           typeof SUPABASE_URL === "string" &&
           typeof SUPABASE_ANON_KEY === "string" &&
           SUPABASE_URL.startsWith("https://") &&
-          !SUPABASE_URL.includes("YOUR_SUPABASE_URL") &&
-          SUPABASE_ANON_KEY.length > 20 &&
-          !SUPABASE_ANON_KEY.includes("YOUR_SUPABASE_ANON_KEY");
+          SUPABASE_URL.length > 10 &&
+          SUPABASE_ANON_KEY.length > 20;
 
         if (!hasConfig) {
           showOnly(el.viewConfig);
+          if (el.configUrl) el.configUrl.value = SUPABASE_URL || "";
+          if (el.configKey) el.configKey.value = SUPABASE_ANON_KEY || "";
           return;
         }
 
@@ -896,6 +926,20 @@
 
       window.addEventListener("beforeunload", () => {
         disconnectMqtt();
+      });
+
+      el.configSave?.addEventListener("click", () => {
+        const url = (el.configUrl?.value || "").trim();
+        const anonKey = (el.configKey?.value || "").trim();
+
+        const ok = url.startsWith("https://") && url.includes(".supabase.co") && anonKey.length > 20;
+        if (!ok) {
+          alert("請填入正確的 Supabase URL 與 anon key");
+          return;
+        }
+
+        setSupabaseConfig({ url, anonKey });
+        location.reload();
       });
 
       init();
