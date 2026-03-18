@@ -5,9 +5,9 @@ import Dashboard from "./components/Dashboard";
 import { supabase } from "./utils/supabaseClient";
 
 export default function App() {
-  const [isLoggedIn, setIsLoggedIn]   = useState(false);
-  const [userEmail, setUserEmail]     = useState<string>("");
-  const [loading, setLoading]         = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [userEmail, setUserEmail]   = useState<string>("");
+  const [loading, setLoading]       = useState(true);
 
   const isSupabaseConfigured =
     import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -15,28 +15,24 @@ export default function App() {
   useEffect(() => {
     if (!isSupabaseConfigured) { setLoading(false); return; }
 
-    // ── 初始載入：檢查是否有持久 session ──
+    const rememberMe = localStorage.getItem("rememberMe") === "true";
+
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user?.email) {
-        const rememberMe = localStorage.getItem("rememberMe") === "true";
-        if (rememberMe) {
-          // 勾選過「記住我」→ 直接自動登入
-          setIsLoggedIn(true);
-          setUserEmail(session.user.email);
-        } else {
-          // 未勾選 → 清除 session，回登入頁
-          supabase.auth.signOut();
-        }
+      if (session?.user?.email && rememberMe) {
+        // 有 session 且曾勾選記住我 → 直接自動登入
+        setIsLoggedIn(true);
+        setUserEmail(session.user.email);
+      } else if (session && !rememberMe) {
+        // 有 session 但未勾選記住我 → 清除，回登入頁
+        supabase.auth.signOut();
       }
       setLoading(false);
     });
 
-    // ── 監聽後續 auth 事件（登入 / 登出）──
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "SIGNED_IN" && session?.user?.email) {
-        setIsLoggedIn(true);
-        setUserEmail(session.user.email);
-      }
+    // onAuthStateChange 只處理明確的 SIGNED_OUT，
+    // SIGNED_IN 交給 LoginScreen 的 onLogin callback 處理，
+    // 避免自動 session 恢復時繞過 rememberMe 檢查
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
         setIsLoggedIn(false);
         setUserEmail("");
@@ -76,7 +72,8 @@ export default function App() {
     <Dashboard
       email={userEmail}
       onLogout={() => {
-        localStorage.removeItem("rememberMe"); // 登出時清除記住我
+        localStorage.removeItem("rememberMe");
+        localStorage.removeItem("savedEmail");
         setIsLoggedIn(false);
         setUserEmail("");
       }}
