@@ -3,8 +3,8 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches:
-      - main      # 推送到 main 分支時自動部署
-  workflow_dispatch: # 也可以手動觸發
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -33,11 +33,10 @@ jobs:
 
       - name: Build
         env:
-          # 從 GitHub Secrets 注入 Supabase 設定
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          # GitHub 自動提供 GITHUB_REPOSITORY (格式: username/repo-name)
-          GITHUB_REPOSITORY: ${{ github.repository }}
+          # 直接傳入 repo 名稱給 vite.config.ts 使用
+          VITE_REPO_NAME: ${{ github.event.repository.name }}
         run: npm run build
 
       - name: Upload artifact
