@@ -34,23 +34,26 @@ jobs:
 
       - run: npm ci
       - run: |
-          if [ -n "${SUPABASE:-}" ]; then
-            printf "%s\n" "$SUPABASE" >> "$GITHUB_ENV"
+          if [ -n "${INPUT_SUPABASE:-}" ]; then
+            printf "%s\n" "$INPUT_SUPABASE" >> "$GITHUB_ENV"
+          fi
+
+          if [ -z "${VITE_SUPABASE_URL:-}" ] && [ -n "${INPUT_SUPABASE_URL:-}" ]; then
+            printf "%s\n" "VITE_SUPABASE_URL=$INPUT_SUPABASE_URL" >> "$GITHUB_ENV"
+          fi
+
+          if [ -z "${VITE_SUPABASE_ANON_KEY:-}" ] && [ -n "${INPUT_SUPABASE_ANON_KEY:-}" ]; then
+            printf "%s\n" "VITE_SUPABASE_ANON_KEY=$INPUT_SUPABASE_ANON_KEY" >> "$GITHUB_ENV"
           fi
         env:
-          SUPABASE: ${{ secrets.SUPABASE || vars.SUPABASE }}
+          INPUT_SUPABASE: ${{ secrets.SUPABASE || vars.SUPABASE }}
+          INPUT_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || secrets.SUPABASE_URL || vars.VITE_SUPABASE_URL || vars.SUPABASE_URL }}
+          INPUT_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || secrets.SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY || vars.SUPABASE_ANON_KEY }}
+
       - run: node -e "['VITE_SUPABASE_URL','VITE_SUPABASE_ANON_KEY'].forEach(k=>{if(!process.env[k]){console.error('Missing '+k);process.exit(1)}})"
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || secrets.SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || secrets.SUPABASE_ANON_KEY }}
       - run: node -e "console.log('VITE_SUPABASE_URL present:', !!process.env.VITE_SUPABASE_URL); console.log('VITE_SUPABASE_ANON_KEY present:', !!process.env.VITE_SUPABASE_ANON_KEY)"
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || secrets.SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || secrets.SUPABASE_ANON_KEY }}
       - run: npm run build
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || secrets.SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || secrets.SUPABASE_ANON_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
       - uses: actions/upload-pages-artifact@v3
