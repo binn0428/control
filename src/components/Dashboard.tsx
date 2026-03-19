@@ -459,240 +459,296 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans select-none">
 
-      {/* ══ HEADER ══ */}
-      <div className="px-3 pt-3 pb-1">
-        <div className="flex items-center justify-between mb-0.5">
-          <h1 className="text-lg font-bold tracking-tight">Smart Lock</h1>
-          <div className="flex items-center gap-2">
-            {shareRemaining !== null ? (
+      {/* ══ 頂部帳號欄（桌面 + 手機共用）══ */}
+      <div className="bg-slate-900 border-b border-slate-800 px-4 py-2 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <h1 className="text-base font-bold tracking-tight">Smart Lock</h1>
+          <div className="hidden md:flex items-center gap-1.5">
+            <div className={`w-1.5 h-1.5 rounded-full ${statusColor}`} />
+            <span className="text-slate-500 text-xs">{mqttStatus}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {/* 登入帳號顯示 */}
+          <span className="text-xs text-slate-400 truncate max-w-[160px] md:max-w-xs" title={email}>
+            {email}
+          </span>
+          {shareRemaining !== null ? (
+            <span className={`hidden sm:inline text-xs px-2 py-0.5 rounded-full border ${
+              shareRemaining > 0 ? "border-slate-600 text-slate-400" : "border-red-500/60 text-red-400"
+            }`}>分享剩餘 {shareRemaining}</span>
+          ) : selectedDevice ? (
+            <span className="hidden sm:inline text-xs text-yellow-600 bg-yellow-500/10 border border-yellow-600/30 px-2 py-0.5 rounded-full">共享</span>
+          ) : null}
+          <button onClick={handleLogout} className="text-slate-500 hover:text-white p-1" title="登出">
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* ══ 主體：手機單欄 / 桌面雙欄 ══ */}
+      <div className="md:flex md:h-[calc(100vh-41px)] md:overflow-hidden">
+
+        {/* ── 左欄（手機全寬 / 桌面固定 360px）── */}
+        <div className="md:w-[360px] md:flex-shrink-0 md:overflow-y-auto md:border-r md:border-slate-800 px-3 pt-3 pb-2">
+
+          {/* 手機版連線狀態 */}
+          <div className="flex items-center gap-2 mb-2 md:hidden">
+            <span className="text-slate-500 text-xs">控制面板</span>
+            <div className={`w-1.5 h-1.5 rounded-full ${statusColor}`} />
+            <span className="text-slate-500 text-xs">{mqttStatus}</span>
+          </div>
+
+          {/* 桌面版分享剩餘（因頂部欄空間有限，在左欄補充顯示）*/}
+          {shareRemaining !== null && (
+            <div className="hidden md:flex items-center justify-between mb-2 px-1">
+              <span className="text-xs text-slate-500">設備控制</span>
               <span className={`text-xs px-2 py-0.5 rounded-full border ${
                 shareRemaining > 0 ? "border-slate-600 text-slate-400" : "border-red-500/60 text-red-400"
               }`}>分享剩餘 {shareRemaining}/{MAX_SHARES}</span>
-            ) : selectedDevice ? (
-              <span className="text-xs text-yellow-600 bg-yellow-500/10 border border-yellow-600/30 px-2 py-0.5 rounded-full">
-                共享・不可分享
-              </span>
-            ) : null}
-            <button onClick={handleLogout} className="text-slate-500 hover:text-white p-1">
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-slate-500 text-xs">控制面板</span>
-          <div className={`w-1.5 h-1.5 rounded-full ${statusColor}`} />
-          <span className="text-slate-500 text-xs">{mqttStatus}</span>
-        </div>
-
-        {/* 設備選擇列 */}
-        <div className="flex items-center gap-1.5 mb-2">
-          <div className="relative flex-1 min-w-0">
-            <select
-              value={selectedDevice?.id ?? ""}
-              onChange={(e) => setSelectedDevice(devices.find((d) => d.id === e.target.value) ?? null)}
-              className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-lg px-3 py-2 appearance-none focus:outline-none focus:border-blue-500 pr-6"
-            >
-              {devices.length === 0 && <option value="">無設備</option>}
-              {devices.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.share_from ? `⬦ ${d.device_name}` : `● ${d.device_name}`}
-                </option>
-              ))}
-            </select>
-            <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">▾</div>
-          </div>
-
-          {isOwnDevice ? (
-            <>
-              {/* 分享按鈕 */}
-              <button
-                onClick={() => { setShareEmail(""); setShareError(""); setShowShareModal(true); }}
-                disabled={(shareRemaining ?? 0) <= 0}
-                className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-blue-400 active:bg-blue-500/20 disabled:opacity-30 disabled:cursor-not-allowed"
-                title="分享設備">
-                <Share2 className="w-3.5 h-3.5" />
-              </button>
-              {/* 管理分享（已分享者清單）*/}
-              <button
-                onClick={openManageModal}
-                className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-purple-400 active:bg-purple-500/20"
-                title="管理分享">
-                <Users className="w-3.5 h-3.5" />
-              </button>
-              <button onClick={() => selectedDevice && handleDeleteDevice(selectedDevice)}
-                className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-red-400 active:bg-red-500/20"
-                title="刪除設備">
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </>
-          ) : selectedDevice?.share_from ? (
-            /* 被分享者：離開分享按鈕 */
-            <button
-              onClick={() => setShowLeaveConfirm(true)}
-              className="p-2 rounded-lg bg-slate-800 border border-orange-600/60 text-orange-400 active:bg-orange-500/20"
-              title="離開分享">
-              <UserMinus className="w-3.5 h-3.5" />
-            </button>
-          ) : null}
-          <button onClick={() => setShowResetConfirm(true)}
-            className="px-2.5 py-2 rounded-lg bg-red-500 text-white text-xs font-semibold active:bg-red-600">
-            重置
-          </button>
-          <button onClick={() => setShowCredentials(true)}
-            className="p-2 rounded-lg bg-blue-500 text-white active:bg-blue-600">
-            <Settings className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-
-      {/* ══ 手動控制 ══ */}
-      <div className="mx-3 mb-2">
-        <div className="grid grid-cols-3 gap-2">
-          {[
-            { action:"open", label:"開", cls:"border-blue-500 text-blue-400 active:bg-blue-500/20" },
-            { action:"stop", label:"停", cls:"border-red-500  text-red-400  active:bg-red-500/20"  },
-            { action:"down", label:"關", cls:"border-slate-600 text-slate-300 active:bg-slate-800" },
-          ].map(({ action, label, cls }) => (
-            <button key={action} onClick={() => handleControl(action)}
-              className={`py-2.5 rounded-xl border ${cls} font-bold text-base bg-slate-900`}>
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ══ 地圖 ══ */}
-      <div className="bg-slate-900 mx-3 rounded-xl border border-slate-800 mb-2">
-        {/* 工具列 */}
-        <div className="px-2.5 py-1.5 flex items-center justify-between">
-          <span className="text-xs font-semibold text-slate-300">地點地圖</span>
-          <div className="flex items-center gap-1">
-            <button onClick={() => setIsStreetView((v) => !v)}
-              className={`px-2 py-0.5 rounded-full border text-xs font-medium ${
-                isStreetView ? "bg-blue-600 border-blue-500 text-white" : "bg-slate-800 border-slate-700 text-slate-300"
-              }`}>
-              {isStreetView ? "街道" : "衛星"}
-            </button>
-            <button onClick={() => nav(-1)} disabled={!savedLocations.length}
-              className="bg-slate-800 rounded-full border border-slate-700 w-6 h-6 flex items-center justify-center disabled:opacity-30">
-              <ChevronLeft className="w-3.5 h-3.5" />
-            </button>
-            <button onClick={() => nav(1)} disabled={!savedLocations.length}
-              className="bg-slate-800 rounded-full border border-slate-700 w-6 h-6 flex items-center justify-center disabled:opacity-30">
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-            <button onClick={handleLocate} disabled={gpsLoading}
-              className={`rounded-full border w-6 h-6 flex items-center justify-center ${
-                gpsLoading   ? "bg-yellow-500/20 border-yellow-500 text-yellow-400" :
-                userPosition ? "bg-green-500/20  border-green-500  text-green-400"  :
-                               "bg-slate-800 border-slate-700"
-              }`}>
-              {gpsLoading
-                ? <div className="w-3 h-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
-                : <Crosshair className="w-3.5 h-3.5" />}
-            </button>
-          </div>
-        </div>
-
-        {/* 狀態 + 取消 */}
-        <div className="px-2.5 pb-1 flex items-center justify-between gap-2 min-h-[20px]">
-          <p className="text-xs text-slate-400 truncate">
-            {gpsError && !userPosition
-              ? <span className="text-red-400">{gpsError}</span>
-              : pendingLocation
-              ? `📍 ${pendingLocation[0].toFixed(4)}, ${pendingLocation[1].toFixed(4)}`
-              : gpsLoading
-              ? "正在自動定位..."
-              : userPosition
-              ? `✅ ${userPosition[0].toFixed(4)}, ${userPosition[1].toFixed(4)}`
-              : "點地圖選位置，或按 ⊕ GPS"}
-          </p>
-          {pendingLocation && (
-            <button onClick={() => setPendingLocation(null)}
-              className="flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-slate-700 text-slate-300 text-xs flex-shrink-0">
-              <X className="w-3 h-3" />取消
-            </button>
+            </div>
           )}
-        </div>
 
-        {/* 地圖本體 */}
-        <div className="h-52 w-full overflow-hidden rounded-b-xl">
-          <MapContainer
-            center={userPosition || DEFAULT_CENTER}
-            zoom={17} maxZoom={22}
-            zoomControl={false}
-            style={{ height: "100%", width: "100%" }}
-          >
-            {isStreetView ? (
-              <TileLayer key="street"
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                attribution="&copy; OSM"
-                maxZoom={22} maxNativeZoom={19} keepBuffer={8} />
-            ) : (
-              <TileLayer key="satellite"
-                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                attribution="&copy; Esri"
-                maxZoom={22} maxNativeZoom={19} keepBuffer={8} crossOrigin="" />
-            )}
-            <FlyTo target={flyTarget} />
-            <MapClickHandler onMapClick={setPendingLocation} />
-            {userPosition && (
+          {/* 設備選擇列 */}
+          <div className="flex items-center gap-1.5 mb-2">
+            <div className="relative flex-1 min-w-0">
+              <select
+                value={selectedDevice?.id ?? ""}
+                onChange={(e) => setSelectedDevice(devices.find((d) => d.id === e.target.value) ?? null)}
+                className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-lg px-3 py-2 appearance-none focus:outline-none focus:border-blue-500 pr-6"
+              >
+                {devices.length === 0 && <option value="">無設備</option>}
+                {devices.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.share_from ? `⬦ ${d.device_name}` : `● ${d.device_name}`}
+                  </option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">▾</div>
+            </div>
+
+            {isOwnDevice ? (
               <>
-                <Circle center={userPosition} radius={12}
-                  pathOptions={{ fillColor:"#3b82f6", fillOpacity:0.15, color:"#3b82f6", weight:1.5 }} />
-                <Marker position={userPosition} icon={gpsIcon} />
+                <button
+                  onClick={() => { setShareEmail(""); setShareError(""); setShowShareModal(true); }}
+                  disabled={(shareRemaining ?? 0) <= 0}
+                  className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-blue-400 active:bg-blue-500/20 disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="分享設備">
+                  <Share2 className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={openManageModal}
+                  className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-purple-400 active:bg-purple-500/20"
+                  title="管理分享">
+                  <Users className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={() => selectedDevice && handleDeleteDevice(selectedDevice)}
+                  className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-red-400 active:bg-red-500/20"
+                  title="刪除設備">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
               </>
-            )}
-            {pendingLocation && <Marker position={pendingLocation} icon={pendingIcon} />}
-            {savedLocations.map((loc) => (
-              <Marker key={loc.id} position={loc.position} icon={savedIcon} />
-            ))}
-          </MapContainer>
-        </div>
-
-        <div className="px-2.5 py-1.5 border-t border-slate-800">
-          <p className="text-xs text-slate-400">
-            {savedLocations.length > 0
-              ? `${savedLocations[activeLocIdx]?.label}（${activeLocIdx + 1}/${savedLocations.length}）`
-              : "尚未儲存地點"}
-          </p>
-        </div>
-      </div>
-
-      {/* ══ 位置設定 ══ */}
-      <div className="bg-slate-900 mx-3 rounded-xl px-3 py-2 border border-slate-800 mb-4">
-        <h2 className="text-xs font-bold text-slate-400 mb-1.5">位置設定</h2>
-        <button onClick={openNameModal} disabled={!pendingLocation}
-          className="w-full py-2.5 rounded-xl border border-purple-600 bg-purple-900/20 text-white font-bold text-sm active:bg-purple-900/40 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-          <MapPin className="w-4 h-4" />
-          {pendingLocation ? "新增地點（輸入名稱）" : "新增地點（請先點選地圖）"}
-        </button>
-        {savedLocations.length > 0 && (
-          <div className="mt-1.5 space-y-1">
-            {savedLocations.map((loc, idx) => (
-              <div key={loc.id}
-                className={`flex items-center justify-between px-2 py-1.5 rounded-lg border text-xs ${
-                  idx === activeLocIdx ? "border-purple-500 bg-purple-500/10" : "border-slate-700 bg-slate-800"
-                }`}>
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${idx === activeLocIdx ? "bg-purple-400" : "bg-slate-500"}`} />
-                  <span className="text-slate-300 truncate">{loc.label}</span>
-                  <span className="text-slate-500 flex-shrink-0">{loc.position[0].toFixed(3)},{loc.position[1].toFixed(3)}</span>
-                </div>
-                <div className="flex gap-3 ml-2 flex-shrink-0">
-                  <button onClick={() => { setActiveLocIdx(idx); setFlyTarget(loc.position); }} className="text-blue-400">前往</button>
-                  <button onClick={() => {
-                    const upd = savedLocations.filter((_, i) => i !== idx);
-                    setSavedLocations(upd);
-                    setActiveLocIdx(Math.min(activeLocIdx, Math.max(0, upd.length - 1)));
-                  }} className="text-red-400">刪除</button>
-                </div>
-              </div>
-            ))}
+            ) : selectedDevice?.share_from ? (
+              <button onClick={() => setShowLeaveConfirm(true)}
+                className="p-2 rounded-lg bg-slate-800 border border-orange-600/60 text-orange-400 active:bg-orange-500/20"
+                title="離開分享">
+                <UserMinus className="w-3.5 h-3.5" />
+              </button>
+            ) : null}
+            <button onClick={() => setShowResetConfirm(true)}
+              className="px-2.5 py-2 rounded-lg bg-red-500 text-white text-xs font-semibold active:bg-red-600">
+              重置
+            </button>
+            <button onClick={() => setShowCredentials(true)}
+              className="p-2 rounded-lg bg-blue-500 text-white active:bg-blue-600">
+              <Settings className="w-3.5 h-3.5" />
+            </button>
           </div>
-        )}
-      </div>
+
+          {/* 手動控制 */}
+          <div className="mb-2">
+            <p className="text-xs text-slate-500 mb-1.5 px-0.5">手動控制</p>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { action:"open", label:"開", cls:"border-blue-500 text-blue-400 active:bg-blue-500/20" },
+                { action:"stop", label:"停", cls:"border-red-500  text-red-400  active:bg-red-500/20"  },
+                { action:"down", label:"關", cls:"border-slate-600 text-slate-300 active:bg-slate-800" },
+              ].map(({ action, label, cls }) => (
+                <button key={action} onClick={() => handleControl(action)}
+                  className={`py-3 md:py-4 rounded-xl border ${cls} font-bold text-lg bg-slate-900`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 設備帳密快速資訊（桌面版直接顯示在左欄）*/}
+          {selectedDevice && (
+            <div className="hidden md:block bg-slate-800/50 rounded-xl border border-slate-700 px-3 py-2.5 mb-2">
+              <p className="text-xs text-slate-500 mb-1.5">設備資訊</p>
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-500">帳號</span>
+                  <span className="text-slate-300 font-mono">{selectedDevice.mqtt_user || "未設定"}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-500">密碼</span>
+                  <span className="text-slate-300 font-mono">{selectedDevice.mqtt_pass || "未設定"}</span>
+                </div>
+                {selectedDevice.share_from && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-500">分享者</span>
+                    <span className="text-yellow-500 truncate max-w-[160px]">{selectedDevice.share_from}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 手機版設備帳密按鈕 */}
+          <button onClick={() => setShowCredentials(true)}
+            className="md:hidden w-full py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-400 text-xs mb-2 flex items-center justify-center gap-1.5">
+            <Settings className="w-3.5 h-3.5" />設備帳密
+          </button>
+
+        </div>
+
+        {/* ── 右欄（手機全寬 / 桌面佔剩餘空間）── */}
+        <div className="md:flex-1 md:overflow-y-auto px-3 md:px-4 pt-0 md:pt-3 pb-4">
+
+          {/* 地圖 */}
+          <div className="bg-slate-900 rounded-xl border border-slate-800 mb-2">
+            {/* 工具列 */}
+            <div className="px-2.5 py-1.5 flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-300">地點地圖</span>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setIsStreetView((v) => !v)}
+                  className={`px-2 py-0.5 rounded-full border text-xs font-medium ${
+                    isStreetView ? "bg-blue-600 border-blue-500 text-white" : "bg-slate-800 border-slate-700 text-slate-300"
+                  }`}>
+                  {isStreetView ? "街道" : "衛星"}
+                </button>
+                <button onClick={() => nav(-1)} disabled={!savedLocations.length}
+                  className="bg-slate-800 rounded-full border border-slate-700 w-6 h-6 flex items-center justify-center disabled:opacity-30">
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={() => nav(1)} disabled={!savedLocations.length}
+                  className="bg-slate-800 rounded-full border border-slate-700 w-6 h-6 flex items-center justify-center disabled:opacity-30">
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={handleLocate} disabled={gpsLoading}
+                  className={`rounded-full border w-6 h-6 flex items-center justify-center ${
+                    gpsLoading   ? "bg-yellow-500/20 border-yellow-500 text-yellow-400" :
+                    userPosition ? "bg-green-500/20  border-green-500  text-green-400"  :
+                                   "bg-slate-800 border-slate-700"
+                  }`}>
+                  {gpsLoading
+                    ? <div className="w-3 h-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+                    : <Crosshair className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* 狀態 + 取消 */}
+            <div className="px-2.5 pb-1 flex items-center justify-between gap-2 min-h-[20px]">
+              <p className="text-xs text-slate-400 truncate">
+                {gpsError && !userPosition
+                  ? <span className="text-red-400">{gpsError}</span>
+                  : pendingLocation
+                  ? `📍 ${pendingLocation[0].toFixed(4)}, ${pendingLocation[1].toFixed(4)}`
+                  : gpsLoading
+                  ? "正在自動定位..."
+                  : userPosition
+                  ? `✅ ${userPosition[0].toFixed(4)}, ${userPosition[1].toFixed(4)}`
+                  : "點地圖選位置，或按 ⊕ GPS"}
+              </p>
+              {pendingLocation && (
+                <button onClick={() => setPendingLocation(null)}
+                  className="flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-slate-700 text-slate-300 text-xs flex-shrink-0">
+                  <X className="w-3 h-3" />取消
+                </button>
+              )}
+            </div>
+
+            {/* 地圖本體：手機 h-52 / 桌面佔更多高度 */}
+            <div className="h-52 md:h-[420px] w-full overflow-hidden rounded-b-xl">
+              <MapContainer
+                center={userPosition || DEFAULT_CENTER}
+                zoom={17} maxZoom={22}
+                zoomControl={false}
+                style={{ height: "100%", width: "100%" }}
+              >
+                {isStreetView ? (
+                  <TileLayer key="street"
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    attribution="&copy; OSM"
+                    maxZoom={22} maxNativeZoom={19} keepBuffer={8} />
+                ) : (
+                  <TileLayer key="satellite"
+                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                    attribution="&copy; Esri"
+                    maxZoom={22} maxNativeZoom={19} keepBuffer={8} crossOrigin="" />
+                )}
+                <FlyTo target={flyTarget} />
+                <MapClickHandler onMapClick={setPendingLocation} />
+                {userPosition && (
+                  <>
+                    <Circle center={userPosition} radius={12}
+                      pathOptions={{ fillColor:"#3b82f6", fillOpacity:0.15, color:"#3b82f6", weight:1.5 }} />
+                    <Marker position={userPosition} icon={gpsIcon} />
+                  </>
+                )}
+                {pendingLocation && <Marker position={pendingLocation} icon={pendingIcon} />}
+                {savedLocations.map((loc) => (
+                  <Marker key={loc.id} position={loc.position} icon={savedIcon} />
+                ))}
+              </MapContainer>
+            </div>
+
+            <div className="px-2.5 py-1.5 border-t border-slate-800">
+              <p className="text-xs text-slate-400">
+                {savedLocations.length > 0
+                  ? `${savedLocations[activeLocIdx]?.label}（${activeLocIdx + 1}/${savedLocations.length}）`
+                  : "尚未儲存地點"}
+              </p>
+            </div>
+          </div>
+
+          {/* 位置設定 */}
+          <div className="bg-slate-900 rounded-xl px-3 py-2 border border-slate-800 mb-2">
+            <h2 className="text-xs font-bold text-slate-400 mb-1.5">位置設定</h2>
+            <button onClick={openNameModal} disabled={!pendingLocation}
+              className="w-full py-2.5 rounded-xl border border-purple-600 bg-purple-900/20 text-white font-bold text-sm active:bg-purple-900/40 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+              <MapPin className="w-4 h-4" />
+              {pendingLocation ? "新增地點（輸入名稱）" : "新增地點（請先點選地圖）"}
+            </button>
+            {savedLocations.length > 0 && (
+              <div className="mt-1.5 space-y-1">
+                {savedLocations.map((loc, idx) => (
+                  <div key={loc.id}
+                    className={`flex items-center justify-between px-2 py-1.5 rounded-lg border text-xs ${
+                      idx === activeLocIdx ? "border-purple-500 bg-purple-500/10" : "border-slate-700 bg-slate-800"
+                    }`}>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${idx === activeLocIdx ? "bg-purple-400" : "bg-slate-500"}`} />
+                      <span className="text-slate-300 truncate">{loc.label}</span>
+                      <span className="text-slate-500 flex-shrink-0">{loc.position[0].toFixed(3)},{loc.position[1].toFixed(3)}</span>
+                    </div>
+                    <div className="flex gap-3 ml-2 flex-shrink-0">
+                      <button onClick={() => { setActiveLocIdx(idx); setFlyTarget(loc.position); }} className="text-blue-400">前往</button>
+                      <button onClick={() => {
+                        const upd = savedLocations.filter((_, i) => i !== idx);
+                        setSavedLocations(upd);
+                        setActiveLocIdx(Math.min(activeLocIdx, Math.max(0, upd.length - 1)));
+                      }} className="text-red-400">刪除</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+        </div>{/* end 右欄 */}
+      </div>{/* end 雙欄 */}
 
       {/* ══ 分享設備 Modal ══ */}
       {showShareModal && (
