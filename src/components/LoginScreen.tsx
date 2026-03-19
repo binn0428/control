@@ -109,11 +109,8 @@ export default function LoginScreen({ onLogin }: { onLogin: (email: string) => v
   };
 
   /* ── 強制登入 ────────────────────────────────────────────────────────
-     1. 確認帳號已在 registered_emails 註冊
-     2. 用帳密登入（Supabase Auth 驗證密碼）
-     3. 清空該帳號的 MAC → 解除舊裝置綁定
-     4. 重新綁定目前裝置 ID
-     5. 自動登入                                                         */
+     順序：先 Auth 登入（驗密碼）→ 登入後才能查 registered_emails（RLS）
+     → 確認 email 欄位存在 → 清 MAC → 綁目前裝置 → 自動登入            */
   const handleForceLogin = async () => {
     if (!email || !password) { setError("請先輸入帳號與密碼"); return; }
     setError("");
@@ -121,18 +118,23 @@ export default function LoginScreen({ onLogin }: { onLogin: (email: string) => v
     try {
       const deviceId = await getDeviceId();
 
-      // 1. 確認帳號已在 registered_emails
-      const { data: regData, error: regError } = await supabase
-        .from("registered_emails").select("email, mac").eq("email", email).single();
-
-      if (regError || !regData) {
-        throw new Error("此帳號尚未註冊，請先完成註冊");
-      }
-
-      // 2. 驗證帳密（signInWithPassword 會拋出錯誤若密碼錯誤）
+      // 1. 先用 Supabase Auth 驗證帳密（未登入前 RLS 無法查資料表）
       const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
       if (authError) {
+        // Auth 失敗代表帳號不存在或密碼錯誤
         throw new Error("帳號或密碼錯誤");
+      }
+
+      // 2. 登入後才查 registered_emails，確認 email 欄位存在
+      const { data: regData, error: regError } = await supabase
+        .from("registered_emails")
+        .select("email, mac")
+        .eq("email", email)
+        .single();
+
+      if (regError || !regData) {
+        await supabase.auth.signOut();
+        throw new Error("此帳號尚未完成系統註冊，請聯繫管理員");
       }
 
       // 3. 清空 MAC（解除舊裝置綁定）
@@ -140,7 +142,7 @@ export default function LoginScreen({ onLogin }: { onLogin: (email: string) => v
         .from("registered_emails")
         .update({ mac: null })
         .eq("email", email);
-      if (clearError) throw new Error("清除裝置綁定失敗");
+      if (clearError) throw new Error("清除裝置綁定失敗，請稍後再試");
 
       // 4. 重新綁定目前裝置
       await supabase
@@ -151,7 +153,6 @@ export default function LoginScreen({ onLogin }: { onLogin: (email: string) => v
       saveRememberMe(email);
       onLogin(email);
     } catch (err: any) {
-      // 若登入失敗確保登出
       await supabase.auth.signOut().catch(() => {});
       setError(err.message || "強制登入失敗");
     } finally {
