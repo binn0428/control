@@ -273,26 +273,46 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
 
       const currentCount = parseInt(String(ownerRow.count ?? 0), 10);
 
-      // 2. UPSERT 分享 row
-      //    用 upsert 取代 insert，避免舊版殘留資料造成 unique 衝突
-      //    onConflict 需對應 device_credentials 的 unique constraint 欄位
-      const { error: upsertErr } = await supabase
+      // 2. 先查有無舊資料 → 有則 UPDATE，無則 INSERT
+      //    完全避免 upsert onConflict 依賴 DB constraint 名稱的問題
+      const { data: existingRow } = await supabase
         .from("device_credentials")
-        .upsert(
-          {
+        .select("id")
+        .eq("user_id", target)
+        .eq("device_name", selectedDevice.device_name)
+        .eq("mqtt_user", selectedDevice.mqtt_user ?? "")
+        .maybeSingle();
+
+      if (existingRow) {
+        // 已有舊資料（殘留）→ 直接更新
+        const { error: updateSharedErr } = await supabase
+          .from("device_credentials")
+          .update({
+            mqtt_pass:  selectedDevice.mqtt_pass,
+            share_from: email,
+            count:      currentCount - 1,
+          })
+          .eq("id", existingRow.id);
+        if (updateSharedErr) {
+          console.error("UPDATE shared error:", updateSharedErr);
+          throw new Error(`更新分享資料失敗：[${updateSharedErr.code}] ${updateSharedErr.message}`);
+        }
+      } else {
+        // 全新分享 → INSERT
+        const { error: insertErr } = await supabase
+          .from("device_credentials")
+          .insert({
             user_id:     target,
             device_name: selectedDevice.device_name,
             mqtt_user:   selectedDevice.mqtt_user,
             mqtt_pass:   selectedDevice.mqtt_pass,
             share_from:  email,
             count:       currentCount - 1,
-          },
-          { onConflict: "user_id,device_name,mqtt_user" }
-        );
-
-      if (upsertErr) {
-        console.error("UPSERT error:", upsertErr);
-        throw new Error(`[${upsertErr.code}] ${upsertErr.message}`);
+          });
+        if (insertErr) {
+          console.error("INSERT error:", insertErr);
+          throw new Error(`新增分享資料失敗：[${insertErr.code}] ${insertErr.message}`);
+        }
       }
 
       // 3. UPDATE owner count - 1
