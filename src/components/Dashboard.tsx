@@ -345,10 +345,37 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
     setPendingLocation(null); setPendingName(""); setShowNameModal(false);
   };
 
-  /* ── 刪除設備 ── */
+  /* ── 刪除設備 ──────────────────────────────────────────────────────────
+     主帳號刪除：同時刪除所有 share_from = email 的分享 row（連帶清除）
+     分享來的設備刪除：只刪自己那筆（邏輯不變）                          */
   const handleDeleteDevice = async (dev: DeviceCredential) => {
     if (!confirm(`刪除「${dev.device_name}」？`)) return;
-    await supabase.from("device_credentials").delete().eq("id", dev.id);
+    try {
+      if (!dev.share_from) {
+        // 主帳號的設備：先刪所有被分享出去的 row（share_from = 自己 email）
+        await supabase
+          .from("device_credentials")
+          .delete()
+          .eq("share_from", email)
+          .eq("device_name", dev.device_name)
+          .eq("mqtt_user", dev.mqtt_user ?? "");
+
+        // 再刪自己的 owner row
+        await supabase
+          .from("device_credentials")
+          .delete()
+          .eq("id", dev.id);
+      } else {
+        // 分享來的設備：只刪自己那筆
+        await supabase
+          .from("device_credentials")
+          .delete()
+          .eq("id", dev.id);
+      }
+    } catch (err: any) {
+      alert("刪除失敗：" + (err.message || err));
+      return;
+    }
     const upd = devices.filter((d) => d.id !== dev.id);
     setDevices(upd);
     if (selectedDevice?.id === dev.id) setSelectedDevice(upd[0] ?? null);
