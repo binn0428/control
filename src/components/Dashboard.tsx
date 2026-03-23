@@ -7,7 +7,7 @@ import {
 import L from "leaflet";
 import {
   Crosshair, ChevronLeft, ChevronRight,
-  LogOut, Settings, Share2, Trash2, X, MapPin, UserMinus, Users,
+  LogOut, Settings, Share2, Trash2, X, MapPin, UserMinus, Users, Pencil,
 } from "lucide-react";
 import { supabase } from "../utils/supabaseClient";
 import { connectMqtt, publishMqtt, disconnectMqtt } from "../utils/mqttClient";
@@ -101,6 +101,10 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
   const [pendingLocation, setPendingLocation] = useState<[number, number] | null>(null);
   const [savedLocations, setSavedLocations]   = useState<SavedLocation[]>([]);
   const [activeLocIdx, setActiveLocIdx]       = useState(0);
+
+  // 設備改名
+  const [editingName, setEditingName]   = useState(false);
+  const [newDeviceName, setNewDeviceName] = useState("");
 
   // 地點命名
   const [showNameModal, setShowNameModal] = useState(false);
@@ -381,6 +385,43 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
     if (selectedDevice?.id === dev.id) setSelectedDevice(upd[0] ?? null);
   };
 
+  /* ── 修改設備名稱 ──────────────────────────────────────────────────────
+     1. UPDATE 主帳號的 owner row
+     2. 同步 UPDATE 所有 share_from = email 的分享 row（級聯更新）       */
+  const handleRenameDevice = async () => {
+    if (!selectedDevice || !newDeviceName.trim()) return;
+    const trimmed = newDeviceName.trim();
+    if (trimmed === selectedDevice.device_name) { setEditingName(false); return; }
+    try {
+      // 更新 owner row
+      const { error: e1 } = await supabase
+        .from("device_credentials")
+        .update({ device_name: trimmed })
+        .eq("id", selectedDevice.id);
+      if (e1) throw e1;
+
+      // 同步更新所有分享 row（share_from = 自己 email，舊名稱相同）
+      if (!selectedDevice.share_from) {
+        await supabase
+          .from("device_credentials")
+          .update({ device_name: trimmed })
+          .eq("share_from", email)
+          .eq("device_name", selectedDevice.device_name)
+          .eq("mqtt_user", selectedDevice.mqtt_user ?? "");
+      }
+
+      // 更新本地 state
+      const upd = devices.map((d) =>
+        d.id === selectedDevice.id ? { ...d, device_name: trimmed } : d
+      );
+      setDevices(upd);
+      setSelectedDevice({ ...selectedDevice, device_name: trimmed });
+      setEditingName(false);
+    } catch (err: any) {
+      alert("改名失敗：" + (err.message || err));
+    }
+  };
+
   /* ── 管理分享：載入被分享者清單 ──────────────────────────────────────
      需要 Supabase RLS：
      CREATE POLICY "owner can see shared rows"
@@ -531,19 +572,58 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
           {/* 設備選擇列 */}
           <div className="flex items-center gap-1.5 mb-2">
             <div className="relative flex-1 min-w-0">
-              <select
-                value={selectedDevice?.id ?? ""}
-                onChange={(e) => setSelectedDevice(devices.find((d) => d.id === e.target.value) ?? null)}
-                className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-lg px-3 py-2 appearance-none focus:outline-none focus:border-blue-500 pr-6"
-              >
-                {devices.length === 0 && <option value="">無設備</option>}
-                {devices.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.share_from ? `⬦ ${d.device_name}` : `● ${d.device_name}`}
-                  </option>
-                ))}
-              </select>
-              <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">▾</div>
+              {/* 改名模式：顯示 input */}
+              {editingName && selectedDevice ? (
+                <div className="flex gap-1">
+                  <input
+                    autoFocus
+                    value={newDeviceName}
+                    onChange={(e) => setNewDeviceName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleRenameDevice();
+                      if (e.key === "Escape") setEditingName(false);
+                    }}
+                    className="flex-1 bg-slate-800 border border-blue-500 text-white text-sm rounded-lg px-3 py-2 focus:outline-none"
+                    placeholder="輸入新名稱"
+                  />
+                  <button onClick={handleRenameDevice}
+                    className="px-3 py-2 bg-blue-600 text-white text-xs rounded-lg active:bg-blue-700 font-medium">
+                    確認
+                  </button>
+                  <button onClick={() => setEditingName(false)}
+                    className="px-2 py-2 bg-slate-700 text-slate-300 text-xs rounded-lg active:bg-slate-600">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                /* 正常模式：下拉 + 主帳號才能點擊改名 */
+                <div className="flex gap-1">
+                  <div className="relative flex-1 min-w-0">
+                    <select
+                      value={selectedDevice?.id ?? ""}
+                      onChange={(e) => setSelectedDevice(devices.find((d) => d.id === e.target.value) ?? null)}
+                      className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-lg px-3 py-2 appearance-none focus:outline-none focus:border-blue-500 pr-6"
+                    >
+                      {devices.length === 0 && <option value="">無設備</option>}
+                      {devices.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.share_from ? `⬦ ${d.device_name}` : `● ${d.device_name}`}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">▾</div>
+                  </div>
+                  {/* 主帳號才顯示改名按鈕 */}
+                  {isOwnDevice && (
+                    <button
+                      onClick={() => { setNewDeviceName(selectedDevice?.device_name ?? ""); setEditingName(true); }}
+                      className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 active:bg-slate-700"
+                      title="修改設備名稱">
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {isOwnDevice ? (
@@ -623,11 +703,7 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
             </div>
           )}
 
-          {/* 手機版設備帳密按鈕 */}
-          <button onClick={() => setShowCredentials(true)}
-            className="md:hidden w-full py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-400 text-xs mb-2 flex items-center justify-center gap-1.5">
-            <Settings className="w-3.5 h-3.5" />設備帳密
-          </button>
+
 
         </div>
 
