@@ -422,8 +422,7 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
   const handleRenameDevice = async () => {
     if (!selectedDevice || !newDeviceName.trim()) return;
     const trimmed = newDeviceName.trim();
-    const curDisplay = displayName(selectedDevice);
-    if (trimmed === curDisplay) { setEditingName(false); return; }
+    if (trimmed === (selectedDevice.device_name ?? "")) { setEditingName(false); return; }
     try {
       // 更新自己的 row（只寫 device_name_custom）
       const { error: e1 } = await supabase
@@ -442,9 +441,15 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
           .eq("mqtt_user", selectedDevice.mqtt_user ?? "");
       }
 
-      // 更新本地 state
+      // 更新本地 state（owner row + 同名分享 row 一併更新）
       const upd = devices.map((d) =>
-        d.id === selectedDevice.id ? { ...d, device_name_custom: trimmed } : d
+        d.id === selectedDevice.id ||
+        (!selectedDevice.share_from &&
+          d.share_from === email &&
+          d.device_name === selectedDevice.device_name &&
+          d.mqtt_user  === selectedDevice.mqtt_user)
+          ? { ...d, device_name_custom: trimmed }
+          : d
       );
       setDevices(upd);
       setSelectedDevice({ ...selectedDevice, device_name_custom: trimmed });
