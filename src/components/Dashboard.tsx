@@ -118,6 +118,9 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
   const [editingName, setEditingName]   = useState(false);
   const [newDeviceName, setNewDeviceName] = useState("");
 
+  // 手動控制按壓提示
+  const [triggeredAction, setTriggeredAction] = useState<string | null>(null);
+
   // 地點命名
   const [showNameModal, setShowNameModal] = useState(false);
   const [pendingName, setPendingName]     = useState("");
@@ -263,6 +266,9 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
       `device/${selectedDevice.mqtt_user}/${selectedDevice.device_name}/command`,
       JSON.stringify({ action, pin, ts: Math.floor(Date.now() / 1000) })
     );
+    // 按壓提示動畫
+    setTriggeredAction(action);
+    setTimeout(() => setTriggeredAction(null), 1200);
   };
 
   /* ── 手動 GPS ── */
@@ -589,11 +595,18 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
         {/* ── 左欄（手機全寬 / 桌面固定 360px）── */}
         <div className="md:w-[360px] md:flex-shrink-0 md:overflow-y-auto md:border-r md:border-slate-800 px-3 pt-3 pb-2">
 
-          {/* 手機版連線狀態 */}
-          <div className="flex items-center gap-2 mb-2 md:hidden">
-            <span className="text-slate-500 text-xs">控制面板</span>
-            <div className={`w-1.5 h-1.5 rounded-full ${statusColor}`} />
-            <span className="text-slate-500 text-xs">{mqttStatus}</span>
+          {/* 手機版連線狀態 + 設備名稱同排 */}
+          <div className="flex items-center justify-between gap-2 mb-2 md:hidden">
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span className="text-slate-500 text-xs">控制面板</span>
+              <div className={`w-1.5 h-1.5 rounded-full ${statusColor}`} />
+              <span className="text-slate-500 text-xs">{mqttStatus}</span>
+            </div>
+            {selectedDevice && (
+              <span className="text-sm font-semibold text-slate-200 truncate text-right">
+                {displayName(selectedDevice)}
+              </span>
+            )}
           </div>
 
           {/* 桌面版分享剩餘（因頂部欄空間有限，在左欄補充顯示）*/}
@@ -705,15 +718,26 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
             <p className="text-xs text-slate-500 mb-1.5 px-0.5">手動控制</p>
             <div className="grid grid-cols-3 gap-2">
               {[
-                { action:"open", label:"開", cls:"border-blue-500 text-blue-400 active:bg-blue-500/20" },
-                { action:"stop", label:"停", cls:"border-red-500  text-red-400  active:bg-red-500/20"  },
-                { action:"down", label:"關", cls:"border-slate-600 text-slate-300 active:bg-slate-800" },
-              ].map(({ action, label, cls }) => (
-                <button key={action} onClick={() => handleControl(action)}
-                  className={`py-3 md:py-4 rounded-xl border ${cls} font-bold text-lg bg-slate-900`}>
-                  {label}
-                </button>
-              ))}
+                { action:"open", label:"開",
+                  base:"border-blue-500 text-blue-400",
+                  pressed:"bg-blue-500 text-white border-blue-400 scale-95 shadow-lg shadow-blue-500/40" },
+                { action:"stop", label:"停",
+                  base:"border-red-500 text-red-400",
+                  pressed:"bg-red-500 text-white border-red-400 scale-95 shadow-lg shadow-red-500/40" },
+                { action:"down", label:"關",
+                  base:"border-slate-600 text-slate-300",
+                  pressed:"bg-slate-600 text-white border-slate-500 scale-95 shadow-lg shadow-slate-500/30" },
+              ].map(({ action, label, base, pressed }) => {
+                const isPressed = triggeredAction === action;
+                return (
+                  <button key={action} onClick={() => handleControl(action)}
+                    style={{ transition: "transform 0.1s, box-shadow 0.15s, background-color 0.15s" }}
+                    className={`py-3 md:py-4 rounded-xl border font-bold text-lg bg-slate-900
+                      ${isPressed ? pressed : base} active:scale-95`}>
+                    {isPressed ? "✓" : label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
