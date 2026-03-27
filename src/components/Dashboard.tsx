@@ -54,6 +54,7 @@ interface DeviceCredential {
   device_name_custom?: string | null;   // 使用者自訂名稱
   mqtt_user?: string;
   mqtt_pass?: string;
+  server_no?: number | null;            // 供裝伺服器編號，對應 MQTT_List
   share_from?: string | null;
   share_count: number;
 }
@@ -93,7 +94,23 @@ function displayName(d: DeviceCredential | null): string {
 
 const MAX_SHARES = 5;
 const DEFAULT_CENTER: [number, number] = [22.6273, 120.3014];
-const BROKER = "wss://8141bbadc4214f9d9f30e7822bd41522.s1.eu.hivemq.cloud:8884/mqtt";
+
+/* ─── MQTT 伺服器對照表（從 DB 的 mqtt_list 載入，不寫死）─── */
+// mqtt_list 是全局設定表，不需以 user_id 篩選
+const MQTT_FALLBACK: Record<number, string> = {}; // DB 載入前暫為空
+
+/** 依 device 的 server_no 從傳入的 mqttList 取得 Broker URL；找不到時回傳 null */
+function getBrokerUrl(
+  device: DeviceCredential | null,
+  mqttList: Record<number, string>
+): string | null {
+  if (!device) return null;
+  // server_no 為 null / undefined / 0 時一律 fallback 到 1
+  const no: number = (device.server_no != null && device.server_no > 0)
+    ? device.server_no
+    : 1;
+  return mqttList[no] ?? null;
+}
 
 export default function Dashboard({ email, onLogout }: { email: string; onLogout: () => void }) {
   const [devices, setDevices]               = useState<DeviceCredential[]>([]);
@@ -103,6 +120,9 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
   const [showCredentials, setShowCredentials]   = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetting, setResetting]           = useState(false);
+
+  // MQTT 伺服器對照表（從 DB 載入）
+  const [mqttList, setMqttList] = useState<Record<number, string>>(MQTT_FALLBACK);
 
   // 地圖
   const [isStreetView, setIsStreetView]       = useState(false);
@@ -149,9 +169,40 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
     try {
       const { data, error } = await supabase
         .from("device_credentials")
-        .select("id, device_name, device_name_initial, device_name_custom, mqtt_user, mqtt_pass, share_from, count")
+        .select("id, device_name, device_name_initial, device_name_custom, mqtt_user, mqtt_pass, server_no, share_from, count")
         .eq("user_id", email);
-      if (error) throw error;
+      if (error) {
+        // 若 server_no 欄位不存在，嘗試不含 server_no 的 fallback 查詢
+        console.warn("fetchDevices 主查詢失敗，嘗試不含 server_no:", error.message);
+        const { data: data2, error: error2 } = await supabase
+          .from("device_credentials")
+          .select("id, device_name, device_name_initial, device_name_custom, mqtt_user, mqtt_pass, share_from, count")
+          .eq("user_id", email);
+        if (error2) throw error2;
+        const rows2: any[] = data2 || [];
+        const ownerCountMap2: Record<string, number> = {};
+        rows2.forEach((r) => {
+          if (!r.share_from) {
+            ownerCountMap2[`${r.mqtt_user}|${r.mqtt_pass}|${r.device_name}`] =
+              parseInt(String(r.count ?? 0), 10);
+          }
+        });
+        const mapped2: DeviceCredential[] = rows2.map((r) => ({
+          id: r.id,
+          device_name: r.device_name,
+          device_name_initial: r.device_name_initial ?? null,
+          device_name_custom: r.device_name_custom ?? null,
+          mqtt_user: r.mqtt_user,
+          mqtt_pass: r.mqtt_pass,
+          server_no: null,
+          share_from: r.share_from ?? null,
+          share_count: ownerCountMap2[`${r.mqtt_user}|${r.mqtt_pass}|${r.device_name}`]
+            ?? parseInt(String(r.count ?? 0), 10),
+        }));
+        setDevices(mapped2);
+        if (mapped2.length && !selectedDevice) setSelectedDevice(mapped2[0]);
+        return;
+      }
       const rows: any[] = data || [];
 
       // 建立 owner count 查找表：key = mqtt_user|mqtt_pass|device_name
@@ -170,6 +221,7 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
         device_name_custom: r.device_name_custom ?? null,
         mqtt_user: r.mqtt_user,
         mqtt_pass: r.mqtt_pass,
+        server_no: r.server_no ?? null,
         share_from: r.share_from ?? null,
         share_count: ownerCountMap[`${r.mqtt_user}|${r.mqtt_pass}|${r.device_name}`]
           ?? parseInt(String(r.count ?? 0), 10),
@@ -200,6 +252,29 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
 
   useEffect(() => { fetchDevices(); }, [fetchDevices]);
 
+  /* ── 從 DB 載入 MQTT 伺服器清單 ──────────────────────────────────────
+     資料表：mqtt_list ( id, user_id, server_no int, url text )
+     mqtt_list 為全局伺服器設定，直接讀全表，不以 user_id 篩選。
+     device_credentials.server_no 比對 mqtt_list.server_no → 取 url。  */
+  useEffect(() => {
+    supabase
+      .from("mqtt_list")
+      .select("server_no, url")
+      .then(({ data, error }) => {
+        if (error) { console.error("[mqtt_list]", error); return; }
+        if (!data || data.length === 0) {
+          console.warn("[mqtt_list] 無資料，請確認資料表內容");
+          return;
+        }
+        const map: Record<number, string> = {};
+        data.forEach((row: { server_no: number; url: string }) => {
+          if (row.server_no != null && row.url) map[row.server_no] = row.url;
+        });
+        console.log("[mqtt_list] 載入成功:", map);
+        setMqttList(map);
+      });
+  }, []);
+
   /* ── 開啟頁面自動 GPS 定位 ── */
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -217,15 +292,27 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
   }, []); // 只在 mount 時執行一次
 
   /* ── MQTT ── */
-  const deviceId = selectedDevice?.id;
-  const mqttUser = selectedDevice?.mqtt_user;
-  const mqttPass = selectedDevice?.mqtt_pass;
+  const deviceId  = selectedDevice?.id;
+  const mqttUser  = selectedDevice?.mqtt_user;
+  const mqttPass  = selectedDevice?.mqtt_pass;
+  const serverNo  = selectedDevice?.server_no;
 
   useEffect(() => {
     if (!mqttUser || !mqttPass) return;
+    // mqttList 尚未從 DB 載入完成時，等待下一次 re-render（mqttList 在 deps 內）
+    if (Object.keys(mqttList).length === 0) return;
+
+    // 依 device 的 server_no 從 mqttList 取得對應 Broker URL
+    const brokerUrl = getBrokerUrl(selectedDevice, mqttList);
+    if (!brokerUrl) {
+      console.warn(`[MQTT] server_no=${serverNo} 在 mqttList 中找不到對應 URL，放棄連線`);
+      setMqttStatus("Disconnected");
+      return;
+    }
+
     let isActive = true;
     setMqttStatus("Connecting...");
-    const client = connectMqtt(BROKER, {
+    const client = connectMqtt(brokerUrl, {
       username: mqttUser, password: mqttPass,
       clientId: `web_${Math.random().toString(36).slice(2, 9)}`,
       reconnectPeriod: 3000, keepalive: 30,
@@ -235,7 +322,8 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
     client.on("close",     () => { if (isActive) setMqttStatus("Disconnected"); });
     client.on("reconnect", () => { if (isActive) setMqttStatus("Connecting..."); });
     return () => { isActive = false; disconnectMqtt(); };
-  }, [deviceId, mqttUser, mqttPass]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceId, mqttUser, mqttPass, serverNo, mqttList]);
 
   /* ── 登出 ── */
   const handleLogout = async () => {
@@ -261,6 +349,11 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
   /* ── 控制 ── */
   const handleControl = (action: string) => {
     if (!selectedDevice?.mqtt_user || !selectedDevice?.device_name) { alert("請先選擇設備"); return; }
+    const brokerUrl = getBrokerUrl(selectedDevice, mqttList);
+    if (!brokerUrl) {
+      alert(`設備「${displayName(selectedDevice)}」的伺服器（server_no=${selectedDevice.server_no ?? 1}）URL 未設定，請確認 mqtt_servers 資料表`);
+      return;
+    }
     const pin = action === "open" ? "D4" : action === "stop" ? "D18" : "D19";
     publishMqtt(
       `device/${selectedDevice.mqtt_user}/${selectedDevice.device_name}/command`,
@@ -424,16 +517,34 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
 
   /* ── 修改設備名稱 ──────────────────────────────────────────────────────
      只更新 device_name_custom，device_name 完全不動。
+     還原條件（寫入 null）：
+       ① 輸入框清空（空字串）
+       ② 輸入值等於 device_name_initial 或 device_name（原始名稱）
      同步更新 share_from = email 的分享 row（相同 mqtt_user/pass/device_name）*/
   const handleRenameDevice = async () => {
-    if (!selectedDevice || !newDeviceName.trim()) return;
+    if (!selectedDevice) return;
     const trimmed = newDeviceName.trim();
-    if (trimmed === (selectedDevice.device_name ?? "")) { setEditingName(false); return; }
+
+    // 原始名稱（供裝初始值 → device_name 回退）
+    const originalName = (selectedDevice.device_name_initial?.trim() || selectedDevice.device_name?.trim() || "");
+
+    // 還原條件：清空 或 輸入原始名稱
+    const isRestoring = trimmed === "" || trimmed === originalName;
+
+    // 若自訂名稱已相同（且非還原），直接關閉
+    if (!isRestoring && trimmed === (selectedDevice.device_name_custom?.trim() ?? "")) {
+      setEditingName(false);
+      return;
+    }
+
+    // 還原時寫 null，否則寫新名稱
+    const newCustomValue: string | null = isRestoring ? null : trimmed;
+
     try {
       // 更新自己的 row（只寫 device_name_custom）
       const { error: e1 } = await supabase
         .from("device_credentials")
-        .update({ device_name_custom: trimmed })
+        .update({ device_name_custom: newCustomValue })
         .eq("id", selectedDevice.id);
       if (e1) throw e1;
 
@@ -441,7 +552,7 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
       if (!selectedDevice.share_from) {
         await supabase
           .from("device_credentials")
-          .update({ device_name_custom: trimmed })
+          .update({ device_name_custom: newCustomValue })
           .eq("share_from", email)
           .eq("device_name", selectedDevice.device_name)
           .eq("mqtt_user", selectedDevice.mqtt_user ?? "");
@@ -454,11 +565,11 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
           d.share_from === email &&
           d.device_name === selectedDevice.device_name &&
           d.mqtt_user  === selectedDevice.mqtt_user)
-          ? { ...d, device_name_custom: trimmed }
+          ? { ...d, device_name_custom: newCustomValue }
           : d
       );
       setDevices(upd);
-      setSelectedDevice({ ...selectedDevice, device_name_custom: trimmed });
+      setSelectedDevice({ ...selectedDevice, device_name_custom: newCustomValue });
       setEditingName(false);
     } catch (err: any) {
       alert("改名失敗：" + (err.message || err));
@@ -634,7 +745,7 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
                       if (e.key === "Escape") setEditingName(false);
                     }}
                     className="flex-1 bg-slate-800 border border-blue-500 text-white text-sm rounded-lg px-3 py-2 focus:outline-none"
-                    placeholder="輸入新名稱"
+                    placeholder={`原始：${selectedDevice.device_name_initial?.trim() || selectedDevice.device_name?.trim() || ""}（清空可還原）`}
                   />
                   <button onClick={handleRenameDevice}
                     className="px-3 py-2 bg-blue-600 text-white text-xs rounded-lg active:bg-blue-700 font-medium">
