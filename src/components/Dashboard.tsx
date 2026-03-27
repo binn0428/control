@@ -54,6 +54,7 @@ interface DeviceCredential {
   device_name_custom?: string | null;   // 使用者自訂名稱
   mqtt_user?: string;
   mqtt_pass?: string;
+  server_no?: number | null;            // 供裝伺服器編號，對應 MQTT_List
   share_from?: string | null;
   share_count: number;
 }
@@ -93,7 +94,20 @@ function displayName(d: DeviceCredential | null): string {
 
 const MAX_SHARES = 5;
 const DEFAULT_CENTER: [number, number] = [22.6273, 120.3014];
-const BROKER = "wss://8141bbadc4214f9d9f30e7822bd41522.s1.eu.hivemq.cloud:8884/mqtt";
+
+/* ─── MQTT 伺服器對照表：key = server_no ─── */
+const MQTT_List: Record<number, string> = {
+  1: "wss://8141bbadc4214f9d9f30e7822bd41522.s1.eu.hivemq.cloud:8884/mqtt",
+  // 2: "wss://<server2-host>:8884/mqtt",
+  // 3: "wss://<server3-host>:8884/mqtt",
+};
+
+/** 依 device 的 server_no 取得對應 MQTT Broker URL；找不到時回傳 null */
+function getBrokerUrl(device: DeviceCredential | null): string | null {
+  if (!device) return null;
+  const no = device.server_no ?? 1;   // 無 server_no 預設 1
+  return MQTT_List[no] ?? null;
+}
 
 export default function Dashboard({ email, onLogout }: { email: string; onLogout: () => void }) {
   const [devices, setDevices]               = useState<DeviceCredential[]>([]);
@@ -149,7 +163,7 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
     try {
       const { data, error } = await supabase
         .from("device_credentials")
-        .select("id, device_name, device_name_initial, device_name_custom, mqtt_user, mqtt_pass, share_from, count")
+        .select("id, device_name, device_name_initial, device_name_custom, mqtt_user, mqtt_pass, server_no, share_from, count")
         .eq("user_id", email);
       if (error) throw error;
       const rows: any[] = data || [];
@@ -170,6 +184,7 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
         device_name_custom: r.device_name_custom ?? null,
         mqtt_user: r.mqtt_user,
         mqtt_pass: r.mqtt_pass,
+        server_no: r.server_no ?? null,
         share_from: r.share_from ?? null,
         share_count: ownerCountMap[`${r.mqtt_user}|${r.mqtt_pass}|${r.device_name}`]
           ?? parseInt(String(r.count ?? 0), 10),
@@ -217,15 +232,25 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
   }, []); // 只在 mount 時執行一次
 
   /* ── MQTT ── */
-  const deviceId = selectedDevice?.id;
-  const mqttUser = selectedDevice?.mqtt_user;
-  const mqttPass = selectedDevice?.mqtt_pass;
+  const deviceId  = selectedDevice?.id;
+  const mqttUser  = selectedDevice?.mqtt_user;
+  const mqttPass  = selectedDevice?.mqtt_pass;
+  const serverNo  = selectedDevice?.server_no;
 
   useEffect(() => {
     if (!mqttUser || !mqttPass) return;
+
+    // 依 device 的 server_no 比對 mqtt_user / mqtt_pass，取得對應 Broker URL
+    const brokerUrl = getBrokerUrl(selectedDevice);
+    if (!brokerUrl) {
+      console.warn(`[MQTT] server_no=${serverNo} 在 MQTT_List 中找不到對應 URL，放棄連線`);
+      setMqttStatus("Disconnected");
+      return;
+    }
+
     let isActive = true;
     setMqttStatus("Connecting...");
-    const client = connectMqtt(BROKER, {
+    const client = connectMqtt(brokerUrl, {
       username: mqttUser, password: mqttPass,
       clientId: `web_${Math.random().toString(36).slice(2, 9)}`,
       reconnectPeriod: 3000, keepalive: 30,
@@ -235,7 +260,7 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
     client.on("close",     () => { if (isActive) setMqttStatus("Disconnected"); });
     client.on("reconnect", () => { if (isActive) setMqttStatus("Connecting..."); });
     return () => { isActive = false; disconnectMqtt(); };
-  }, [deviceId, mqttUser, mqttPass]);
+  }, [deviceId, mqttUser, mqttPass, serverNo]);
 
   /* ── 登出 ── */
   const handleLogout = async () => {
@@ -261,6 +286,11 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
   /* ── 控制 ── */
   const handleControl = (action: string) => {
     if (!selectedDevice?.mqtt_user || !selectedDevice?.device_name) { alert("請先選擇設備"); return; }
+    const brokerUrl = getBrokerUrl(selectedDevice);
+    if (!brokerUrl) {
+      alert(`設備「${displayName(selectedDevice)}」的伺服器（server_no=${selectedDevice.server_no}）未設定，無法觸發`);
+      return;
+    }
     const pin = action === "open" ? "D4" : action === "stop" ? "D18" : "D19";
     publishMqtt(
       `device/${selectedDevice.mqtt_user}/${selectedDevice.device_name}/command`,
