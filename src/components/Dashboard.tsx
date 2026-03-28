@@ -54,6 +54,7 @@ interface DeviceCredential {
   device_name_custom?: string | null;   // 使用者自訂名稱
   mqtt_user?: string;
   mqtt_pass?: string;
+  server_no?: string | number | null;
   share_from?: string | null;
   share_count: number;
 }
@@ -100,6 +101,7 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
   const [selectedDevice, setSelectedDevice] = useState<DeviceCredential | null>(null);
   const [loading, setLoading]               = useState(true);
   const [mqttStatus, setMqttStatus]         = useState("Disconnected");
+  const [brokerUrlByServerNo, setBrokerUrlByServerNo] = useState<Record<string, string>>({});
   const [showCredentials, setShowCredentials]   = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetting, setResetting]           = useState(false);
@@ -144,36 +146,74 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
   // count 本身就代表剩餘次數（每次分享 -1）
   const shareRemaining = isOwnDevice ? (selectedDevice?.share_count ?? 0) : null;
 
+  const fetchBrokerUrlMap = useCallback(async (serverNos: string[]) => {
+    const tables = ["MQTT_List", "mqtt_list"];
+    for (const table of tables) {
+      const { data, error } = await supabase
+        .from(table)
+        .select("*")
+        .in("server_no", serverNos);
+      if (error) continue;
+
+      const rows: any[] = data || [];
+      const map: Record<string, string> = {};
+      rows.forEach((r) => {
+        const key = r.server_no != null ? String(r.server_no) : "";
+        const url =
+          (typeof r.url === "string" && r.url) ||
+          (typeof r.mqtt_url === "string" && r.mqtt_url) ||
+          (typeof r.broker_url === "string" && r.broker_url) ||
+          (typeof r.wss_url === "string" && r.wss_url) ||
+          (typeof r.ws_url === "string" && r.ws_url) ||
+          "";
+        if (key && url) map[key] = url;
+      });
+      return map;
+    }
+    return {};
+  }, []);
+
   /* ── 取得設備 ── */
   const fetchDevices = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from("device_credentials")
-        .select("id, device_name, device_name_initial, device_name_custom, mqtt_user, mqtt_pass, share_from, count")
+        .select("id, device_name, device_name_initial, device_name_custom, mqtt_user, mqtt_pass, server_no, share_from, count")
         .eq("user_id", email);
       if (error) throw error;
       const rows: any[] = data || [];
 
-      // 建立 owner count 查找表：key = mqtt_user|mqtt_pass|device_name
+      // 建立 owner count 查找表：key = mqtt_user|mqtt_pass|server_no|device_name
       const ownerCountMap: Record<string, number> = {};
+      const ownerServerMap: Record<string, string> = {};
       rows.forEach((r) => {
         if (!r.share_from) {
-          ownerCountMap[`${r.mqtt_user}|${r.mqtt_pass}|${r.device_name}`] =
+          ownerCountMap[`${r.mqtt_user}|${r.mqtt_pass}|${r.server_no}|${r.device_name}`] =
             parseInt(String(r.count ?? 0), 10);
+          if (r.server_no != null) {
+            ownerServerMap[`${r.mqtt_user}|${r.mqtt_pass}|${r.device_name}`] = String(r.server_no);
+          }
         }
       });
 
-      const mapped: DeviceCredential[] = rows.map((r) => ({
-        id: r.id,
-        device_name: r.device_name,
-        device_name_initial: r.device_name_initial ?? null,
-        device_name_custom: r.device_name_custom ?? null,
-        mqtt_user: r.mqtt_user,
-        mqtt_pass: r.mqtt_pass,
-        share_from: r.share_from ?? null,
-        share_count: ownerCountMap[`${r.mqtt_user}|${r.mqtt_pass}|${r.device_name}`]
-          ?? parseInt(String(r.count ?? 0), 10),
-      }));
+      const mapped: DeviceCredential[] = rows.map((r) => {
+        const serverNoResolved =
+          r.server_no ??
+          ownerServerMap[`${r.mqtt_user}|${r.mqtt_pass}|${r.device_name}`] ??
+          null;
+        const countKey = `${r.mqtt_user}|${r.mqtt_pass}|${serverNoResolved}|${r.device_name}`;
+        return {
+          id: r.id,
+          device_name: r.device_name,
+          device_name_initial: r.device_name_initial ?? null,
+          device_name_custom: r.device_name_custom ?? null,
+          mqtt_user: r.mqtt_user,
+          mqtt_pass: r.mqtt_pass,
+          server_no: serverNoResolved,
+          share_from: r.share_from ?? null,
+          share_count: ownerCountMap[countKey] ?? parseInt(String(r.count ?? 0), 10),
+        };
+      });
 
       // 自動補寫 device_name_initial（只寫一次，不覆蓋既有值）
       const needsInit = mapped.filter(
@@ -193,10 +233,27 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
       }
 
       setDevices(mapped);
-      if (mapped.length && !selectedDevice) setSelectedDevice(mapped[0]);
+      setSelectedDevice((prev) => {
+        if (prev && mapped.some((d) => d.id === prev.id)) {
+          return mapped.find((d) => d.id === prev.id) ?? prev;
+        }
+        return mapped[0] ?? null;
+      });
+
+      const serverNos = Array.from(
+        new Set(
+          mapped
+            .map((d) => (d.server_no == null ? "" : String(d.server_no)))
+            .filter((v) => v.length > 0),
+        ),
+      );
+      if (serverNos.length > 0) {
+        const map = await fetchBrokerUrlMap(serverNos);
+        if (Object.keys(map).length > 0) setBrokerUrlByServerNo(map);
+      }
     } catch (err) { console.error("fetchDevices:", err); }
     finally { setLoading(false); }
-  }, [email]);
+  }, [email, fetchBrokerUrlMap]);
 
   useEffect(() => { fetchDevices(); }, [fetchDevices]);
 
@@ -220,12 +277,17 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
   const deviceId = selectedDevice?.id;
   const mqttUser = selectedDevice?.mqtt_user;
   const mqttPass = selectedDevice?.mqtt_pass;
+  const serverNo = selectedDevice?.server_no;
+  const mqttBrokerUrl =
+    serverNo != null && brokerUrlByServerNo[String(serverNo)]
+      ? brokerUrlByServerNo[String(serverNo)]
+      : BROKER;
 
   useEffect(() => {
     if (!mqttUser || !mqttPass) return;
     let isActive = true;
     setMqttStatus("Connecting...");
-    const client = connectMqtt(BROKER, {
+    const client = connectMqtt(mqttBrokerUrl, {
       username: mqttUser, password: mqttPass,
       clientId: `web_${Math.random().toString(36).slice(2, 9)}`,
       reconnectPeriod: 3000, keepalive: 30,
@@ -235,7 +297,7 @@ export default function Dashboard({ email, onLogout }: { email: string; onLogout
     client.on("close",     () => { if (isActive) setMqttStatus("Disconnected"); });
     client.on("reconnect", () => { if (isActive) setMqttStatus("Connecting..."); });
     return () => { isActive = false; disconnectMqtt(); };
-  }, [deviceId, mqttUser, mqttPass]);
+  }, [deviceId, mqttUser, mqttPass, mqttBrokerUrl]);
 
   /* ── 登出 ── */
   const handleLogout = async () => {
